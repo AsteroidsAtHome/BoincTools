@@ -57,7 +57,7 @@ namespace serverStatusNotifier.Services
 				var serverStatus = _xmlSerializer.Deserialize<ServerStatus>(xmlStr);
 				if (serverStatus == null)
 				{
-					_logger.Warning("Cannot read server status!");
+					_logger.Warning($"Cannot read server status ({_serverURL})!");
 				}
 				else
 				{
