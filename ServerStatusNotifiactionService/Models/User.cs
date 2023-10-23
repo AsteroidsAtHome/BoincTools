@@ -12,6 +12,8 @@ namespace serverStatusNotifier.Models
 
 		public string Lastname { get; set; }
 
+		public string Fullname => string.Concat(Firstname, " ", Lastname);
+
 		public string Email { get; set; }
 	}
 

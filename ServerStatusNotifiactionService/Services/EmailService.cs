@@ -1,14 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Mail;
-using System.Net;
+//using System.Net.Mail;
+//using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using serverStatusNotifier.Models;
 using Microsoft.Extensions.Configuration;
 using Serilog;
+using System.ComponentModel;
+using MimeKit;
+using MailKit.Security;
+using MailKit.Net.Smtp;
 
 namespace serverStatusNotifier.Services
 {
@@ -18,8 +22,8 @@ namespace serverStatusNotifier.Services
 		private readonly IConfiguration _config;
 		private readonly string stateFileName = "email_service_state";
 
-        public EmailService(IConfiguration config)
-        {
+		public EmailService(IConfiguration config)
+		{
 			_config = config;
 		}
 
@@ -63,32 +67,65 @@ namespace serverStatusNotifier.Services
 			return result;
 		}
 
-		public void SendEmail(string to, string subject, string body)
+		public void SendMessage(List<User> users, string subject, string messageBody)
 		{
-
 			var sender = _config.GetValue<string>("SenderEmail") ?? "[sender]";
-			MailMessage message = new MailMessage(sender, to);
-			var subjectTemplate = _config.GetValue<string>("EmailSubjectTemplate");
-			message.Subject = string.Concat(subjectTemplate, " - ", subject);
-			message.Body = body;
+			var senderName = _config.GetValue<string>("SenderName") ?? "[sender]";
+			var messages = new List<MimeMessage>();
 
-			var server = _config.GetValue<string>("SNMPAddress");
-			var port = _config.GetValue<int>("SNMPPort");
-			SmtpClient client = new SmtpClient(server, port);
+			foreach (var user in users)
+			{
+				var messageText = @$"Hi {user.Firstname},
 
-			var snmpUsername = _config.GetValue<string>("SNMPUsername");
-			var snmpPassword = _config.GetValue<string>("SNMPPassword");
-			var snmpUseSSL = _config.GetValue<bool>("SNMPUseSSL");
+{messageBody}
 
-			client.DeliveryMethod = SmtpDeliveryMethod.Network;
-			client.UseDefaultCredentials = false;
-			client.Credentials = new NetworkCredential(snmpUsername, snmpPassword);
-			client.EnableSsl = snmpUseSSL;
+Have a nice day!
+Notification service";
+
+				var message = new MimeMessage();
+				message.From.Add(new MailboxAddress(senderName, sender));
+				message.To.Add(new MailboxAddress(user.Fullname, user.Email));
+
+				var subjectTemplate = _config.GetValue<string>("EmailSubjectTemplate");
+				message.Subject = string.Concat(subjectTemplate, " - ", subject); ;
+				message.Body = new TextPart("plain")
+				{
+					Text = messageText
+				};
+
+				messages.Add(message);
+			}
 
 			try
 			{
-				System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
-				client.Send(message);
+				var server = _config.GetValue<string>("SMTPAddress");
+				var port = _config.GetValue<int>("SMTPPort");
+				var smtpUsername = _config.GetValue<string>("SMTPUsername");
+				var smtpPassword = _config.GetValue<string>("SMTPPassword");
+				var timeout = _config.GetValue<int>("SMTPTimeoutInMilliseconds");
+				var smtpUseSSL = _config.GetValue<bool>("SMTPUseSSL");
+				var smtpUseTls = _config.GetValue<bool>("SMTPUseTls");
+				var secureOptions = (smtpUseSSL, smtpUseTls) switch
+				{
+					(false, false) => SecureSocketOptions.Auto,
+					(true, false) => SecureSocketOptions.SslOnConnect,
+					(false, true) => SecureSocketOptions.StartTls,
+					(true, true) => SecureSocketOptions.StartTlsWhenAvailable
+				};
+
+				using (var client = new SmtpClient())
+				{
+					client.Connect(server, port, secureOptions);
+					client.Authenticate(smtpUsername, smtpPassword);
+					client.Timeout = timeout;
+					foreach(var message in messages)
+					{
+						_logger.Information($"Sending email to {message.To.ToString()}");
+						client.Send(message);
+					}
+
+					client.Disconnect(true);
+				}
 			}
 			catch (Exception ex)
 			{

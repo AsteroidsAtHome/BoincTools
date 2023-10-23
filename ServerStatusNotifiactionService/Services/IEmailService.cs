@@ -11,7 +11,7 @@ namespace serverStatusNotifier.Services
 	{
 		EmailServiceState GetEmailServiceState();
 
-		void SendEmail(string to, string subject, string body);
+		void SendMessage(List<User> users, string subject, string body);
 
 		void SaveStateToFile(NotificationsModel notifications);
 	}
